@@ -1,7 +1,9 @@
 #include "logs.h"
 #include "ui_logs.h"
-#include <QSqlQuery>
+
+#include <QAbstractItemView>
 #include <QSqlError>
+#include <QSqlQuery>
 
 Logs::Logs(QWidget *parent)
     : QDialog(parent)
@@ -10,26 +12,29 @@ Logs::Logs(QWidget *parent)
 {
     ui->setupUi(this);
 
-    if(QSqlDatabase::contains())
-    {
-        db_ = QSqlDatabase::database();
-    }
-    else
-    {
-        db_ = QSqlDatabase::addDatabase("QSQLITE");
-        db_.setDatabaseName("LogsMachine.db");
+    // Используем соединение SQLite, созданное эмулятором.
+    if (!QSqlDatabase::contains()) {
+        qWarning() << "Журнал: соединение с базой данных не найдено";
+        ui->pushButtonClearLogs->setEnabled(false);
+        return;
     }
 
-    if(db_.open())
-    {
-        qDebug() << "Logs: База данных открыта";
-        updateLogs();
-    }
-    else
-    {
-        qDebug() << "Logs: Ошибка открытия БД:" << db_.lastError().text();
+    db_ = QSqlDatabase::database();
+    if (!db_.isOpen() && !db_.open()) {
+        qWarning() << "Журнал: не удалось открыть базу данных:"
+                   << db_.lastError().text();
+        ui->pushButtonClearLogs->setEnabled(false);
+        return;
     }
 
+    model_->setTable("Logs");
+    model_->setEditStrategy(QSqlTableModel::OnManualSubmit);
+    ui->tableViewDB->setModel(model_);
+    ui->tableViewDB->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ui->tableViewDB->setColumnHidden(0, true);
+    ui->tableViewDB->setColumnWidth(1, 300);
+    ui->tableViewDB->setColumnWidth(2, 80);
+    updateLogs();
 }
 
 Logs::~Logs()
@@ -37,48 +42,37 @@ Logs::~Logs()
     delete ui;
 }
 
-
 void Logs::on_pushButtonExit_clicked()
 {
-    this->close();
+    close();
 }
 
 void Logs::updateLogs()
 {
-    if (!db_.isOpen())
-    {
-        qDebug() << "бд не открыта";
+    if (!db_.isOpen()) {
+        qWarning() << "Журнал: база данных не открыта";
         return;
     }
 
-    model_->setTable("Logs");
-
-    //ручное сохранение в бд из TableView
-    model_->setEditStrategy(QSqlTableModel::OnManualSubmit);
-
-    model_->select();
-
-    ui->tableViewDB->setModel(model_);
-
-    ui->tableViewDB->setColumnWidth(0,0);
-    ui->tableViewDB->setColumnWidth(1,300);
-    ui->tableViewDB->setColumnWidth(2,80);
+    if (!model_->select()) {
+        qWarning() << "Журнал: ошибка загрузки записей:"
+                   << model_->lastError().text();
+    }
 }
 
 void Logs::on_pushButtonClearLogs_clicked()
 {
-    QSqlQuery query;
-    query.prepare("DELETE FROM Logs");
-
-    if(query.exec())
-    {
-        qDebug() << "Данные удалены из бд";
+    if (!db_.isOpen()) {
+        qWarning() << "Журнал: невозможно очистить записи без подключения к БД";
+        return;
     }
-    else
-    {
-        qDebug() << "Ошибка удалния " << query.lastError().text();
+
+    QSqlQuery query(db_);
+    if (!query.exec("DELETE FROM Logs")) {
+        qWarning() << "Журнал: ошибка очистки:"
+                   << query.lastError().text();
+        return;
     }
 
     updateLogs();
 }
-
