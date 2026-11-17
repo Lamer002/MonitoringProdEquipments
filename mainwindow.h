@@ -7,9 +7,7 @@
 #include <QListWidget>
 
 QT_BEGIN_NAMESPACE
-namespace Ui {
-class MainWindow;
-}
+namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
 class MainWindow : public QMainWindow
@@ -21,19 +19,16 @@ public:
     ~MainWindow() override;
 
 private slots:
-    void onMachineDoubleClick(QListWidgetItem* i);
-
+    void onMachineDoubleClick(QListWidgetItem *item);
     void on_pushButtonAddMachine_clicked();
-
     void onMachineAdd(QString value);
-
     void on_pushButtonDeleteMachine_clicked();
-
-
     void on_pushButtonLogs_clicked();
+    void refreshMachineList();
 
 private:
     Ui::MainWindow *ui;
-    EmulatorManager* emulator_manager_;
+    EmulatorManager *emulator_manager_;
 };
+
 #endif // MAINWINDOW_H
