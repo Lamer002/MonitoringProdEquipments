@@ -1,35 +1,54 @@
-# Monitoring Production Equipment
+# Мониторинг производственного оборудования
 
-A desktop application for **monitoring simulated industrial machines**, written in **C++17** with **Qt Widgets** and **SQLite**.
+**MonitoringProdEquipment** — настольное приложение на **C++17 и Qt Widgets** для наблюдения за состоянием виртуальных производственных станков. События сохраняются в локальной базе **SQLite**.
 
-> Portfolio demonstration project: telemetry is simulated. There is no connection to real industrial hardware.
+> **Важно:** это демонстрационный проект для портфолио. Показания датчиков генерирует программный эмулятор; приложение не подключается к реальному промышленному оборудованию.
 
-## Features
+## Возможности
 
-- Add/remove machines using unique positive IDs.
-- Monitor status, temperature, RPM, and engine load.
-- Inspect an individual machine in a detail window.
-- Simulate changing telemetry once per second.
-- Show high-temperature warnings and perform emergency shutdown on critical overheating.
-- Store event logs locally in SQLite.
-- View equipment status with color-coded labels.
+- Добавление и удаление станков с уникальными положительными идентификаторами.
+- Отображение состояния станка, температуры, частоты вращения (об/мин) и нагрузки двигателя.
+- Отдельное окно с подробными показателями выбранного станка.
+- Имитация изменения температуры и оборотов каждую секунду.
+- Предупреждение при повышенной температуре и аварийная остановка при критическом перегреве.
+- Запись событий в локальную базу SQLite и просмотр журнала.
+- Цветовая индикация состояния оборудования в общем списке.
 
-## Technology
+## Используемые технологии
 
-C++17 · Qt 5/6 (Widgets, SQL) · SQLite · CMake · CTest · GitHub Actions.
+| Технология | Назначение |
+| --- | --- |
+| **C++17** | Логика приложения и модель станка |
+| **Qt 5 / Qt 6 (Widgets, SQL)** | Графический интерфейс и работа с базой данных |
+| **SQLite** | Хранение журнала событий |
+| **CMake** | Настройка и сборка проекта |
+| **CTest** | Запуск проверок |
+| **GitHub Actions** | Автоматическая сборка и запуск тестов в Linux |
 
-## Build and run
+## Сборка и запуск
 
-Install a C++17 compiler, CMake 3.16+, and Qt development libraries (Widgets, SQL, SQLite driver).
+Понадобятся компилятор с поддержкой **C++17**, **CMake 3.16 или новее** и библиотеки разработки **Qt** (модули Widgets и SQL, а также драйвер SQLite).
+
+В терминале из корня проекта выполните:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-Run the resulting `MonitoringProdEquipment` executable. On Windows with a multi-config generator, build using `cmake --build build --config Release`.
+После успешной сборки запустите программу **`MonitoringProdEquipment`** из каталога сборки.
 
-## Tests
+Для генераторов с несколькими конфигурациями (например, Visual Studio в Windows) сборка Release выполняется так:
+
+```bash
+cmake --build build --config Release
+```
+
+Для запуска на другом компьютере может дополнительно потребоваться развернуть библиотеки Qt и плагин SQLite.
+
+## Проверка работы (тесты)
+
+В проект добавлены проверки основной модели станка. Чтобы собрать и запустить их:
 
 ```bash
 cmake -S . -B build -DBUILD_TESTING=ON
@@ -37,23 +56,27 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-The current tests verify core `Machine` behavior: initial state, value limits, counters, and reset. They do **not** yet cover the UI or database integration. GitHub Actions runs an automated Linux build and these tests on pushes and pull requests.
+**Что проверяется:** начальные значения параметров, ограничение недопустимых значений, счётчики и сброс состояния станка.
 
-## Architecture
+**Что пока не покрыто:** взаимодействие с интерфейсом и полноценная интеграция с базой данных. Наличие тестов в репозитории само по себе не гарантирует, что все проверки уже успешно прошли.
 
-- **`MainWindow`**: equipment list and user interaction.
-- **`EmulatorManager`**: owns simulated machines, runs timer-based updates, handles alarms and SQLite event logging.
-- **`Machine`**: one simulated machine's status, telemetry, and counters.
-- **Qt signals/slots**: propagate status updates and alarms to the interface.
+В файле `.github/workflows/build.yml` настроен сценарий GitHub Actions: при отправке изменений или создании Pull Request GitHub собирает приложение в Linux и запускает CTest. Результат конкретного запуска нужно проверять на вкладке **Actions**.
 
-SQLite event data is saved in the platform-specific application-data directory as `LogsMachine.db`.
+## Как устроено приложение
 
-## Limitations / roadmap
+1. **`MainWindow`** — главное окно: показывает список оборудования, принимает действия пользователя и обновляет отображаемые показатели.
+2. **`EmulatorManager`** — управляет виртуальными станками, запускает периодическое обновление показателей, обрабатывает аварийные ситуации и записывает события в SQLite.
+3. **`Machine`** — модель одного станка: хранит состояние, температуру, обороты, нагрузку двигателя и счётчики.
+4. **Сигналы и слоты Qt** — передают уведомления об изменениях и авариях между компонентами программы.
 
-- Telemetry is simulated, not sourced from physical machines or PLCs.
-- Temperature limits are currently compile-time constants.
-- Add emulator integration tests, UI tests, and a screenshot/demo in a future iteration.
+Файл базы данных `LogsMachine.db` хранится в стандартном каталоге данных приложения, который зависит от операционной системы, а не в папке исходного кода.
 
-## Project status
+## Ограничения и дальнейшее развитие
 
-Portfolio work in progress. The automated build is configured, but please check the GitHub Actions run status and test locally before relying on it as a verified successful build.
+- Показатели **имитируются программно**; связи с реальными контроллерами или станками пока нет.
+- Температурные пороги заданы константами в исходном коде.
+- В дальнейшем можно добавить интеграционные тесты эмулятора, тесты интерфейса, скриншоты и короткое видео работы программы.
+
+## Статус проекта
+
+Проект дорабатывается для портфолио разработчика C++/Qt. Автоматическая сборка и тесты настроены, однако успешность их запуска и корректность работы интерфейса необходимо подтвердить проверкой в GitHub Actions и локальным запуском.
