@@ -3,13 +3,11 @@
 
 #include "machine.h"
 
-#include <QVector>
 #include <QObject>
-#include <QTimer>
-#include <QMessageBox>
 #include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QDebug>
+#include <QString>
+#include <QTimer>
+#include <QVector>
 
 class EmulatorManager : public QObject
 {
@@ -17,33 +15,32 @@ class EmulatorManager : public QObject
 
 public:
     explicit EmulatorManager(QObject *parent = nullptr);
-    ~EmulatorManager() = default;
+    ~EmulatorManager() override;
 
-    void addMachine(Machine* stanok); //Добавить станок
-    void deleteMachine(int id);
-    void startEmulator(); //Эмулятор запуск
-    void stopEmulator(); //Эмулятор стоп
-    void startStopMachine(int id, bool on); //Старт стоп станок
-
-    Machine* getMachineById(int id);
+    // EmulatorManager owns each machine. IDs must be unique and positive.
+    bool addMachine(int id);
+    bool deleteMachine(int id);
+    void startEmulator();
+    void stopEmulator();
+    void startStopMachine(int id, bool on);
+    Machine *getMachineById(int id) const;
+    int machineCount() const;
 
 signals:
-    void dataUpdate(); //Данные для UI что данные изменились
-    void crashTrigger(int id, QString message); //Сообщение об аварии
+    void dataUpdate();
+    void crashTrigger(int id, QString message);
 
 private slots:
-    void onTimeout(); //Срабатывает каждую секунду
-
+    void onTimeout();
 
 private:
+    void logToDatabase(const QString &status, int machineId);
+
     QSqlDatabase db_;
-    QVector<Machine*> machines_;
-    QTimer* timer_;
-    bool isRunning_;
-    int countSecond;
-
-
-    void logToDatabase(QString status, int machineId);
+    QVector<Machine *> machines_;
+    QTimer *timer_ = nullptr;
+    bool isRunning_ = false;
+    int countSecond = 0;
 };
 
 #endif // EMULATORMANAGER_H

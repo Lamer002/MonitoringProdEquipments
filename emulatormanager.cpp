@@ -1,71 +1,79 @@
 #include "emulatormanager.h"
-#include "logs.h"
-#include <QSqlQuery>
-#include <QSqlError>
 
-EmulatorManager::EmulatorManager(QObject *parent) : QObject(parent)
+#include <QDir>
+#include <QDebug>
+#include <QRandomGenerator>
+#include <QSqlError>
+#include <QSqlQuery>
+#include <QStandardPaths>
+
+#include <algorithm>
+
+EmulatorManager::EmulatorManager(QObject *parent)
+    : QObject(parent)
+    , timer_(new QTimer(this))
 {
-    isRunning_ = false;
-    countSecond = 0;
+    connect(timer_, &QTimer::timeout, this, &EmulatorManager::onTimeout);
+
+    const QString dataDirectory =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (!QDir().mkpath(dataDirectory)) {
+        qWarning() << "Unable to create application data directory:" << dataDirectory;
+    }
 
     db_ = QSqlDatabase::addDatabase("QSQLITE");
-    db_.setDatabaseName("LogsMachine.db");
+    db_.setDatabaseName(QDir(dataDirectory).filePath("LogsMachine.db"));
 
-    if(db_.open())
-    {
-        qDebug() << "База данных создана /n" ;
-        QSqlQuery query;
-        bool success = query.exec("CREATE TABLE IF NOT EXISTS Logs ("
-                                  "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                                  "status TEXT NOT NULL,"
-                                  "machineId INTEGER"
-                                  ")");
-        if (!success)
-        {
-            qDebug() << "Ошибка создания таблицы:" << query.lastError().text();
-        }
-        else
-        {
-            qDebug() << "Таблица Logs создана/n";
-        }
+    if (!db_.open()) {
+        qWarning() << "Could not open the event database:" << db_.lastError().text();
+        return;
     }
-    else
-    {
-        qDebug() << "Это фиаско";
+
+    QSqlQuery query(db_);
+    if (!query.exec("CREATE TABLE IF NOT EXISTS Logs ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "status TEXT NOT NULL,"
+                    "machineId INTEGER NOT NULL)")) {
+        qWarning() << "Could not create event table:" << query.lastError().text();
     }
 }
 
-
-void EmulatorManager::addMachine(Machine *stanok)
+EmulatorManager::~EmulatorManager()
 {
-    machines_.append(stanok);
+    stopEmulator();
+    qDeleteAll(machines_);
+    machines_.clear();
+    db_.close();
 }
 
-void EmulatorManager::deleteMachine(int id)
+bool EmulatorManager::addMachine(int id)
 {
-    for (int i = 0; i < machines_.count(); ++i)
-    {
-        if (id == machines_[i]->getId())
-        {
-            machines_.erase(machines_.begin() + i);
-            break;
+    if (id <= 0 || getMachineById(id)) {
+        return false;
+    }
+
+    machines_.append(new Machine(id));
+    emit dataUpdate();
+    return true;
+}
+
+bool EmulatorManager::deleteMachine(int id)
+{
+    for (int index = 0; index < machines_.size(); ++index) {
+        if (machines_[index]->getId() == id) {
+            delete machines_.takeAt(index);
+            emit dataUpdate();
+            return true;
         }
     }
+    return false;
 }
 
 void EmulatorManager::startEmulator()
 {
-
     if (isRunning_) return;
 
     isRunning_ = true;
-
-
-    if(!timer_)
-    {
-        timer_ = new QTimer();
-        connect(timer_, &QTimer::timeout, this, &EmulatorManager::onTimeout);
-    }
     timer_->start(1000);
 }
 
@@ -73,145 +81,125 @@ void EmulatorManager::stopEmulator()
 {
     if (!isRunning_) return;
 
-    if (timer_)
-    {
-        timer_->stop();
-    }
-
+    timer_->stop();
     isRunning_ = false;
 }
 
 void EmulatorManager::startStopMachine(int id, bool on)
 {
-    for (auto it = machines_.begin(); it != machines_.end(); ++it)
-    {
-        if ((*it)->getId() == id)
-        {
-            if(on)
-            {
-                if ((*it)->getStatus() == Machine::STATUS_STOPPED)
-                {
-                    (*it)->setStatus(Machine::STATUS_RUNNING);
-                    logToDatabase("Машина запущена с id: " + QString::number(id), id);
-                }
-            }
-            else
-            {
-                if ((*it)->getStatus() == Machine::STATUS_RUNNING)
-                {
-                    (*it)->setStatus(Machine::STATUS_STOPPED);
-                    logToDatabase("Машина остановлена с id: " + QString::number(id), id);
-                }
-            }
-            break;
-        }
+    Machine *machine = getMachineById(id);
+    if (!machine) return;
+
+    const auto status = machine->getStatus();
+    if (on && (status == Machine::STATUS_STOPPED ||
+               (status == Machine::STATUS_EMERGENCY &&
+                machine->getTemperature() < DEFAULT_TEMPERATURE_WARNING))) {
+        machine->setStatus(Machine::STATUS_RUNNING);
+        logToDatabase(QString("Станок #%1 запущен").arg(id), id);
+    } else if (!on && (status == Machine::STATUS_RUNNING ||
+                       status == Machine::STATUS_WARNING)) {
+        machine->setStatus(Machine::STATUS_STOPPED);
+        machine->setEngineLoading(0);
+        logToDatabase(QString("Станок #%1 остановлен").arg(id), id);
+    } else {
+        return;
     }
+
+    emit dataUpdate();
 }
 
-Machine *EmulatorManager::getMachineById(int id)
+Machine *EmulatorManager::getMachineById(int id) const
 {
-    for (Machine* m : machines_)
-    {
-        if(m->getId() == id) return m;
+    for (Machine *machine : machines_) {
+        if (machine->getId() == id) return machine;
     }
     return nullptr;
+}
+
+int EmulatorManager::machineCount() const
+{
+    return machines_.size();
 }
 
 void EmulatorManager::onTimeout()
 {
     if (!isRunning_) return;
 
-    countSecond ++;
+    ++countSecond;
+    auto *random = QRandomGenerator::global();
 
-    for (Machine* machine : machines_)
-    {
+    for (Machine *machine : machines_) {
+        const auto status = machine->getStatus();
+        const int temperature = machine->getTemperature();
+        const double rpm = machine->getRPM();
 
-        int currentStatus = machine->getStatus();
-        int currentTemper = machine->getTemperature();
-        int currentRPM = machine->getRPM();
+        if (status == Machine::STATUS_RUNNING ||
+            status == Machine::STATUS_WARNING) {
+            const int nextTemperature = temperature + random->bounded(3);
+            machine->setTemperature(nextTemperature);
 
-        if (currentStatus == Machine::STATUS_RUNNING)
-        {
-            //Увеличение тмпературы 0-2 гр в секунду
-            int temperIncrement = rand() % 3;
-            int newTemper = currentTemper + temperIncrement;
-            if (newTemper > DEFAULT_MAX_TEMPERATURE_WARNING) newTemper = DEFAULT_MAX_TEMPERATURE_WARNING;
-            machine->setTemperature(newTemper);
+            // A small upward bias makes the demo reach operating speed naturally.
+            const double nextRpm = rpm + random->bounded(201) - 70;
+            machine->setRPM(nextRpm);
+            machine->setEngineLoading(static_cast<int>(
+                machine->getRPM() * DEFAULT_MAX_ENGINE_LOADING /
+                DEFAULT_MAX_RPM_FREQ));
 
-            //Обороты +- 50 RPM
-            int RPMIncrement = (rand() % 101) - 50;
-            double newRPM = currentRPM + RPMIncrement;
-            if (newRPM < 0) newRPM = 0;
-            if (newRPM > DEFAULT_MAX_RPM_FREQ) newRPM = DEFAULT_MAX_RPM_FREQ;
-            machine->setRPM(newRPM);
-
-            //
-            if (countSecond % 3600 == 0)
-            {
+            if (countSecond % 3600 == 0) {
                 machine->incrementOperHourse();
             }
 
-            //Провекрка на аварии
-            if (newTemper > DEFAULT_MAX_TEMPERATURE_WARNING)
-            {
+            // Check the actual sensor reading BEFORE deciding what to display.
+            if (nextTemperature > DEFAULT_MAX_TEMPERATURE_WARNING) {
                 machine->setStatus(Machine::STATUS_EMERGENCY);
                 machine->incrementCrashCount();
-                logToDatabase("Температура машины привысила 120°C!, машина остановлена с id: " + QString::number(machine->getId()), machine->getId());
-
-                emit crashTrigger(machine->getId(), "Перегрев станка! Температура: " + QString::number(newTemper) + "°C");
-            }
-            else if (newTemper > DEFAULT_MAX_TEMPERATURE_WARNING - 20)
-            {
-                if (machine->getStatus() != Machine::STATUS_EMERGENCY)
-                {
+                machine->setRPM(0);
+                machine->setEngineLoading(0);
+                logToDatabase(
+                    QString("Аварийный перегрев станка #%1: %2 °C")
+                        .arg(machine->getId()).arg(nextTemperature),
+                    machine->getId());
+                emit crashTrigger(
+                    machine->getId(),
+                    QString("Перегрев: %1 °C. Станок остановлен.")
+                        .arg(nextTemperature));
+            } else if (nextTemperature >= DEFAULT_TEMPERATURE_WARNING) {
+                if (status != Machine::STATUS_WARNING) {
                     machine->setStatus(Machine::STATUS_WARNING);
-                    logToDatabase("Температура машины привысила 100°C!, машина остановлена с id: ", machine->getId());
+                    logToDatabase(
+                        QString("Предупреждение: станок #%1 нагрелся до %2 °C")
+                            .arg(machine->getId()).arg(nextTemperature),
+                        machine->getId());
                 }
+            } else if (status == Machine::STATUS_WARNING) {
+                machine->setStatus(Machine::STATUS_RUNNING);
             }
+        } else if (status == Machine::STATUS_STOPPED ||
+                   status == Machine::STATUS_EMERGENCY) {
+            machine->setTemperature(std::max(
+                20, temperature - random->bounded(3)));
+            machine->setRPM(std::max(
+                0.0, rpm - (20 + random->bounded(41))));
+            machine->setEngineLoading(0);
         }
-        else if (currentStatus == Machine::STATUS_STOPPED
-                   || currentStatus == Machine::STATUS_EMERGENCY)
-        {
-
-            //Понижаем температуру
-            if (currentTemper > 20)
-            {
-                int newTemper = currentTemper - (rand() % 2);
-                if (newTemper < 20) newTemper = 20;
-                machine->setTemperature(newTemper);
-            }
-
-            //
-            if (currentRPM > 0)
-            {
-                int newRPM = currentRPM - (rand() % 2);
-                if (newRPM < 0) newRPM = 0;
-                machine->setRPM(newRPM);
-            }
-        }
-
     }
 
     emit dataUpdate();
 }
 
-void EmulatorManager::logToDatabase(QString status, int machineId)
+void EmulatorManager::logToDatabase(const QString &status, int machineId)
 {
-    if(!db_.isOpen())
-    {
-        qDebug() << "бд не открыта для записи логов";
+    if (!db_.isOpen()) {
+        qWarning() << "Database unavailable; event not saved:" << status;
+        return;
     }
-    QSqlQuery query;
+
+    QSqlQuery query(db_);
     query.prepare("INSERT INTO Logs (status, machineId) VALUES (?, ?)");
     query.addBindValue(status);
     query.addBindValue(machineId);
 
-    if(!query.exec())
-    {
-        qDebug() << "Данные не занесены в бд/n" << query.lastError().text();
-    }
-    else
-    {
-        qDebug() << "Данные успешно занесены/n";
+    if (!query.exec()) {
+        qWarning() << "Unable to save event:" << query.lastError().text();
     }
 }
