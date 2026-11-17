@@ -13,66 +13,78 @@ CheckMachineStatus::~CheckMachineStatus()
     delete ui;
 }
 
-void CheckMachineStatus::setMachineId(int id, EmulatorManager *emul)
+void CheckMachineStatus::setMachineId(int id, EmulatorManager *emulator)
 {
     machineId_ = id;
-    emul_ = emul;
+    emul_ = emulator;
+    connect(emul_, &EmulatorManager::dataUpdate,
+            this, &CheckMachineStatus::updateUI);
     updateUI();
-
-    connect(emul_, &EmulatorManager::dataUpdate, this, &CheckMachineStatus::updateUI);
 }
 
 void CheckMachineStatus::updateUI()
 {
-    Machine* machine = emul_->getMachineById(machineId_);
+    if (!emul_) return;
+    Machine *machine = emul_->getMachineById(machineId_);
+    if (!machine) {
+        close(); // The selected machine was removed in the main window.
+        return;
+    }
 
-    if(!machine) return;
+    const auto status = machine->getStatus();
+    updateStatusDisplay(status);
 
-    updateStatusDisplay(machine->getStatus());
-
-    //get ID
     ui->label_id->setText(QString::number(machine->getId()));
-
-    //get temperature
-    ui->label_temperature->setText(QString::number(machine->getTemperature()));
-
-    //get RPM
-    ui->label_RPM->setText(QString::number(machine->getRPM()));
-
-    //
-    ui->label_oper_hours->setText(QString::number(machine->getOperHours()));
-
-    //
-    ui->label_count_breakdown->setText(QString::number(machine->getCrashCount()));
-
-    //
+    ui->label_temperature->setText(
+        QString("%1 °C").arg(machine->getTemperature()));
+    ui->label_RPM->setText(
+        QString("%1 rpm").arg(static_cast<int>(machine->getRPM())));
+    ui->label_oper_hours->setText(
+        QString::number(machine->getOperHours()));
+    ui->label_count_breakdown->setText(
+        QString::number(machine->getCrashCount()));
     ui->progressBar->setValue(machine->getEngineLoading());
+
+    ui->pushButtonStart->setEnabled(
+        status == Machine::STATUS_STOPPED ||
+        (status == Machine::STATUS_EMERGENCY &&
+         machine->getTemperature() < DEFAULT_TEMPERATURE_WARNING));
+    ui->pushButtonStop->setEnabled(
+        status == Machine::STATUS_RUNNING ||
+        status == Machine::STATUS_WARNING);
 }
 
-void CheckMachineStatus::updateStatusDisplay(Machine::Status st)
+void CheckMachineStatus::updateStatusDisplay(Machine::Status status)
 {
+    ui->label_start->setStyleSheet("color: #475569;");
+    ui->label_stop->setStyleSheet("color: #475569;");
+    ui->label_emrgency->setStyleSheet("color: #475569;");
+    ui->label_warning->setStyleSheet("color: #475569;");
 
-    ui->label_start->setStyleSheet("color: gray;");
-    ui->label_stop->setStyleSheet("color: gray;");
-    ui->label_emrgency->setStyleSheet("color: gray;");
-    ui->label_warning->setStyleSheet("color: gray;");
-
-    if(st == Machine::STATUS_RUNNING) ui->label_start->setStyleSheet("color: green;");
-    else if(st == Machine::STATUS_STOPPED) ui->label_stop->setStyleSheet("color: blue;");
-    else if(st == Machine::STATUS_EMERGENCY) ui->label_emrgency->setStyleSheet("color: yellow;");
-    else if(st == Machine::STATUS_WARNING) ui->label_warning->setStyleSheet("color: red;");
-
-
+    switch (status) {
+    case Machine::STATUS_RUNNING:
+        ui->label_start->setStyleSheet("color: #4ade80;");
+        break;
+    case Machine::STATUS_STOPPED:
+        ui->label_stop->setStyleSheet("color: #60a5fa;");
+        break;
+    case Machine::STATUS_EMERGENCY:
+        ui->label_emrgency->setStyleSheet("color: #f87171;");
+        break;
+    case Machine::STATUS_WARNING:
+        ui->label_warning->setStyleSheet("color: #fbbf24;");
+        break;
+    case Machine::STATUS_MAINTENANCE:
+        break;
+    }
 }
 
 void CheckMachineStatus::on_pushButtonStart_clicked()
 {
-    emul_->startStopMachine(machineId_, true);
+    if (emul_) emul_->startStopMachine(machineId_, true);
 }
-
 
 void CheckMachineStatus::on_pushButtonStop_clicked()
 {
-    emul_->startStopMachine(machineId_, false);
+    if (emul_) emul_->startStopMachine(machineId_, false);
 }
-

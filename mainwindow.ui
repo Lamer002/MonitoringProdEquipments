@@ -2,46 +2,55 @@
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>511</width>
-    <height>583</height>
-   </rect>
-  </property>
-  <property name="windowTitle">
-   <string>MainWindow</string>
-  </property>
+  <property name="geometry"><rect><x>0</x><y>0</y><width>900</width><height>620</height></rect></property>
+  <property name="minimumSize"><size><width>640</width><height>450</height></size></property>
+  <property name="windowTitle"><string>Equipment Monitor — Панель управления</string></property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QGridLayout" name="gridLayout_2">
-    <item row="1" column="0">
-     <layout class="QGridLayout" name="gridLayout">
-      <item row="0" column="0">
-       <widget class="QPushButton" name="pushButtonAddMachine">
-        <property name="text">
-         <string>Добавить станок</string>
-        </property>
-       </widget>
-      </item>
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing"><number>17</number></property>
+    <property name="leftMargin"><number>28</number></property>
+    <property name="topMargin"><number>26</number></property>
+    <property name="rightMargin"><number>28</number></property>
+    <property name="bottomMargin"><number>25</number></property>
+    <item><widget class="QLabel" name="labelTitle">
+     <property name="text"><string>EQUIPMENT MONITOR</string></property>
+    </widget></item>
+    <item><widget class="QLabel" name="labelSubtitle">
+     <property name="text"><string>Рабочая панель мониторинга и эмуляции производственного оборудования</string></property>
+     <property name="wordWrap"><bool>true</bool></property>
+    </widget></item>
+    <item>
+     <widget class="QGroupBox" name="groupBoxFleet">
+      <property name="title"><string>Оборудование</string></property>
+      <layout class="QVBoxLayout" name="verticalLayoutFleet">
+       <property name="spacing"><number>12</number></property>
+       <item><widget class="QLabel" name="labelSummary">
+        <property name="text"><string>Всего: 0    ·    Активны: 0</string></property>
+       </widget></item>
+       <item><widget class="QListWidget" name="listWidgetMachines">
+        <property name="alternatingRowColors"><bool>false</bool></property>
+        <property name="spacing"><number>4</number></property>
+       </widget></item>
+       <item><widget class="QLabel" name="labelHint">
+        <property name="text"><string>Дважды нажмите на станок, чтобы открыть телеметрию, запустить или остановить его.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget></item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayoutActions">
+      <property name="spacing"><number>10</number></property>
+      <item><widget class="QPushButton" name="pushButtonAddMachine">
+       <property name="text"><string>+ Добавить станок</string></property>
+      </widget></item>
+      <item><widget class="QPushButton" name="pushButtonDeleteMachine">
+       <property name="text"><string>Удалить выбранный</string></property>
+      </widget></item>
+      <item><widget class="QPushButton" name="pushButtonLogs">
+       <property name="text"><string>Журнал событий</string></property>
+      </widget></item>
      </layout>
-    </item>
-    <item row="2" column="0">
-     <widget class="QPushButton" name="pushButtonDeleteMachine">
-      <property name="text">
-       <string>Удалить станок</string>
-      </property>
-     </widget>
-    </item>
-    <item row="0" column="0">
-     <widget class="QListWidget" name="listWidgetMachines"/>
-    </item>
-    <item row="3" column="0">
-     <widget class="QPushButton" name="pushButtonLogs">
-      <property name="text">
-       <string>Просмотр логов</string>
-      </property>
-     </widget>
     </item>
    </layout>
   </widget>

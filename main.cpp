@@ -1,15 +1,22 @@
 #include "mainwindow.h"
 
 #include <QApplication>
-#include <cstdlib>
-#include <ctime>
+#include <QFile>
+#include <QFont>
 
 int main(int argc, char *argv[])
 {
-    std::srand(static_cast<unsigned int>(std::time(nullptr)));
+    QApplication app(argc, argv);
+    QCoreApplication::setOrganizationName("MonitoringProdEquipment");
+    QCoreApplication::setApplicationName("MonitoringProdEquipment");
+    app.setFont(QFont("Segoe UI", 10));
 
-    QApplication a(argc, argv);
-    MainWindow w;
-    w.show();
-    return QApplication::exec();
+    QFile theme(":/styles/app.qss");
+    if (theme.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        app.setStyleSheet(QString::fromUtf8(theme.readAll()));
+    }
+
+    MainWindow window;
+    window.show();
+    return app.exec();
 }

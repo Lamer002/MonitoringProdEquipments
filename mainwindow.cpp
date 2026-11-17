@@ -1,8 +1,37 @@
 #include "mainwindow.h"
-#include "./ui_mainwindow.h"
-#include "checkmachinestatus.h"
+#include "ui_mainwindow.h"
+
 #include "addmachineinlist.h"
+#include "checkmachinestatus.h"
 #include "logs.h"
+
+#include <QColor>
+#include <QListWidgetItem>
+#include <QMessageBox>
+
+namespace {
+QString statusName(Machine::Status status)
+{
+    switch (status) {
+    case Machine::STATUS_RUNNING: return QStringLiteral("Работает");
+    case Machine::STATUS_WARNING: return QStringLiteral("Предупреждение");
+    case Machine::STATUS_EMERGENCY: return QStringLiteral("Авария");
+    case Machine::STATUS_MAINTENANCE: return QStringLiteral("Обслуживание");
+    case Machine::STATUS_STOPPED: return QStringLiteral("Остановлен");
+    }
+    return QStringLiteral("Неизвестно");
+}
+
+QColor statusColor(Machine::Status status)
+{
+    switch (status) {
+    case Machine::STATUS_RUNNING: return QColor("#4ade80");
+    case Machine::STATUS_WARNING: return QColor("#fbbf24");
+    case Machine::STATUS_EMERGENCY: return QColor("#f87171");
+    default: return QColor("#cbd5e1");
+    }
+}
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -10,73 +39,106 @@ MainWindow::MainWindow(QWidget *parent)
     , emulator_manager_(new EmulatorManager(this))
 {
     ui->setupUi(this);
-    emulator_manager_->startEmulator();
+    connect(ui->listWidgetMachines, &QListWidget::itemDoubleClicked,
+            this, &MainWindow::onMachineDoubleClick);
+    connect(emulator_manager_, &EmulatorManager::dataUpdate,
+            this, &MainWindow::refreshMachineList);
+    connect(emulator_manager_, &EmulatorManager::crashTrigger,
+            this, [this](int id, const QString &message) {
+                QMessageBox::warning(
+                    this, tr("Авария станка #%1").arg(id), message);
+            });
 
-    connect(ui->listWidgetMachines, &QListWidget::itemDoubleClicked, this, &MainWindow::onMachineDoubleClick);
+    refreshMachineList();
+    emulator_manager_->startEmulator();
 }
 
 MainWindow::~MainWindow()
 {
     delete ui;
 }
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void MainWindow::onMachineDoubleClick(QListWidgetItem *i)
+
+void MainWindow::onMachineDoubleClick(QListWidgetItem *item)
 {
-    int machineId = i->data(Qt::UserRole).toInt();
+    if (!item) return;
 
-    CheckMachineStatus* machineCheck = new CheckMachineStatus(this);
-
-    //Освобождение памяти
-    machineCheck->setAttribute(Qt::WA_DeleteOnClose);
-
-    machineCheck->setMachineId(machineId, emulator_manager_);
-
-    machineCheck->show();
+    auto *dialog = new CheckMachineStatus(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setMachineId(item->data(Qt::UserRole).toInt(), emulator_manager_);
+    dialog->show();
 }
 
 void MainWindow::on_pushButtonAddMachine_clicked()
 {
-    AddMachineInList* add_ = new AddMachineInList(this);
-
-    //Освобождение памяти
-    add_->setAttribute(Qt::WA_DeleteOnClose);
-
-    connect(add_, &AddMachineInList::addInMachine, this, &MainWindow::onMachineAdd);
-
-    add_->show();
+    auto *dialog = new AddMachineInList(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog, &AddMachineInList::addInMachine,
+            this, &MainWindow::onMachineAdd);
+    dialog->show();
 }
 
 void MainWindow::onMachineAdd(QString value)
 {
-    int id = value.toInt();
+    bool parsed = false;
+    const int id = value.toInt(&parsed);
+    if (!parsed || !emulator_manager_->addMachine(id)) {
+        QMessageBox::warning(this, tr("Невозможно добавить станок"),
+                             tr("ID должен быть положительным и уникальным."));
+        return;
+    }
 
-    Machine* machine = new Machine();
-    machine->setId(id);
-
-    emulator_manager_->addMachine(machine);
-
-    QListWidgetItem* item = new QListWidgetItem(QString("Станок 1 ID: " + QString::number(id)).arg(id));
+    auto *item = new QListWidgetItem(ui->listWidgetMachines);
     item->setData(Qt::UserRole, id);
-    ui->listWidgetMachines->addItem(item);
+    refreshMachineList();
 }
-
 
 void MainWindow::on_pushButtonDeleteMachine_clicked()
 {
-    QListWidgetItem* item = ui->listWidgetMachines->currentItem();
-
-    if (item)
-    {
-        int id = item->data(Qt::UserRole).toInt();
-        emulator_manager_->deleteMachine(id);
-        delete item;
+    QListWidgetItem *item = ui->listWidgetMachines->currentItem();
+    if (!item) {
+        QMessageBox::information(this, tr("Выберите станок"),
+                                 tr("Сначала выберите станок в списке."));
+        return;
     }
-}
 
+    const int id = item->data(Qt::UserRole).toInt();
+    emulator_manager_->deleteMachine(id);
+    delete item;
+    refreshMachineList();
+}
 
 void MainWindow::on_pushButtonLogs_clicked()
 {
-    Logs* l = new Logs();
-    l->show();
+    auto *dialog = new Logs(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
 }
 
+void MainWindow::refreshMachineList()
+{
+    int active = 0;
+    for (int index = 0; index < ui->listWidgetMachines->count(); ++index) {
+        auto *item = ui->listWidgetMachines->item(index);
+        Machine *machine = emulator_manager_->getMachineById(
+            item->data(Qt::UserRole).toInt());
+        if (!machine) continue;
+
+        if (machine->getStatus() == Machine::STATUS_RUNNING ||
+            machine->getStatus() == Machine::STATUS_WARNING) {
+            ++active;
+        }
+
+        item->setText(
+            QString("  #%1    %2     ·     %3 °C     ·     %4 об/мин")
+                .arg(machine->getId())
+                .arg(statusName(machine->getStatus()))
+                .arg(machine->getTemperature())
+                .arg(static_cast<int>(machine->getRPM())));
+        item->setForeground(statusColor(machine->getStatus()));
+    }
+
+    ui->labelSummary->setText(
+        tr("Всего: %1    ·    Активны: %2")
+            .arg(emulator_manager_->machineCount())
+            .arg(active));
+}
